@@ -13,6 +13,7 @@ sys.path.append(osp.dirname(osp.abspath(__file__)))
 from qatgFault import QATGFault
 from qatgUtil import *
 from qatgConfiguration import QATGConfiguration
+from qatg.accelerate import qatgOnestateFidelity, kron, U2GateSetsTranspiler
 
 class QATG():
 	"""qatg main class"""
@@ -59,16 +60,18 @@ class QATG():
 		self.gradientDeltaThreshold = gradientDeltaThreshold
 		self.maxTestTemplateSize = maxTestTemplateSize
 		self.minRequiredStateFidelity = minRequiredStateFidelity
-		
-		q = QuantumCircuit(1)
-		self.qiskitParameterTheta = Parameter('theta')
-		self.qiskitParameterPhi = Parameter('phi')
-		self.qiskitParameterLambda = Parameter('lam')
-		q.u(self.qiskitParameterTheta, self.qiskitParameterPhi, self.qiskitParameterLambda, 0)
-		try:
-			self.effectiveUGateCircuit = transpile(q, basis_gates = self.basisGateSetString, optimization_level = 3)
-		except Exception as e:
-			raise e
+
+		# q = QuantumCircuit(1)
+		# self.qiskitParameterTheta = Parameter('theta')
+		# self.qiskitParameterPhi = Parameter('phi')
+		# self.qiskitParameterLambda = Parameter('lam')
+		# q.u(self.qiskitParameterTheta, self.qiskitParameterPhi, self.qiskitParameterLambda, 0)
+		# try:
+		# 	self.effectiveUGateCircuit = transpile(q, basis_gates = self.basisGateSetString, optimization_level = 3)
+		# except Exception as e:
+		# 	raise e
+
+		self.transpiler = U2GateSetsTranspiler(self.basisGateSetString)
 
 		self.simulationSetup = {}
 		self.simulationSetup['oneQubitErrorProb'] = oneQubitErrorProb
@@ -150,8 +153,8 @@ class QATG():
 			faultfreeActivation = np.array([1])
 			faultyActivation = np.array([1])
 			for k in range(len(faultfreeGateMatrixList)):
-				faultfreeActivation = np.kron(faultfreeGateMatrixList[k], faultfreeActivation)
-				faultyActivation = np.kron(faultyGateMatrixList[k], faultyActivation)
+				faultfreeActivation = kron(faultfreeGateMatrixList[k], faultfreeActivation)
+				faultyActivation = kron(faultyGateMatrixList[k], faultyActivation)
 			
 			return faultfreeActivation, faultyActivation
 
@@ -234,13 +237,19 @@ class QATG():
 
 	def U2GateSetsTranspile(self, UParameters):
 		# to gate list directly
-		resultCircuit = self.effectiveUGateCircuit.assign_parameters({ \
-			self.qiskitParameterTheta: UParameters[0], \
-			self.qiskitParameterPhi: UParameters[1], \
-			self.qiskitParameterLambda: UParameters[2]})
-		for cktInstruction in resultCircuit.data:
-			cktInstruction.operation.params = [qatgWrapToPi(float(param)) for param in cktInstruction.operation.params]
-		return [cktInstruction.operation for cktInstruction in resultCircuit.data]
+		operations = self.transpiler.transpile(UParameters)
+		for operation in operations:
+			operation.params = [qatgWrapToPi(float(param)) for param in operation.params]
+		return operations
+
+		# resultCircuit = self.effectiveUGateCircuit.assign_parameters({ \
+		# 	self.qiskitParameterTheta: UParameters[0], \
+		# 	self.qiskitParameterPhi: UParameters[1], \
+		# 	self.qiskitParameterLambda: UParameters[2]})
+		# for cktInstruction in resultCircuit.data:
+		# 	cktInstruction.operation.params = [qatgWrapToPi(float(param)) for param in cktInstruction.operation.params]
+		# return [cktInstruction.operation for cktInstruction in resultCircuit.data]
+		#
 		# return [gate for gate, _, _ in resultCircuit.data] # old version of qiskit
 		# potential bug: parameters might have something such as "3pi"
 		# how to restrict range?
